@@ -1,0 +1,17 @@
+name = "fortran-requests"
+version = "0.0.0"
+license = "MIT"
+author = "Ian Giestas Pauli"
+maintainer = "iangiestas@usp.br"
+copyright = "Copyright 2022, Ian Giestas Pauli"
+[build]
+auto-executables = true
+auto-tests = true
+auto-examples = true
+[install]
+library = false
+[dependencies]
+fregex       = { git = "https://github.com/14NGiestas/fregex.git" }
+fortran-curl = { git = "https://github.com/interkosmos/fortran-curl.git", tag = "0.1.2" }
+json-fortran = { git = "https://github.com/jacobwilliams/json-fortran.git", tag = "8.2.5" }
+libdatetime  = { git = "https://github.com/wavebitscientific/datetime-fortran.git", tag = "v1.7.0" }
