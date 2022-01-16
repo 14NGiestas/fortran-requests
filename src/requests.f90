@@ -8,6 +8,7 @@ use curl, only: set_option => curl_easy_setopt,  &
                 curl_free  => curl_easy_cleanup, &
                 curl_exec  => curl_easy_perform
 use responses
+use config
 implicit none
 private
 
@@ -18,7 +19,6 @@ contains
     !procedure :: post
     !procedure :: delete
     procedure :: request
-    procedure, private :: init
     procedure, private :: prepare_url
     procedure, private :: prepare_method
     procedure, private :: prepare_options
@@ -26,26 +26,21 @@ end type
 
 contains
 
-    subroutine init(self)
-        class(request_t) :: self
-        integer :: rc
-        self % curl = curl_init()
-        if (.not. c_associated(self % curl)) then
-            error stop
-        end if
-        rc = set_option(self % curl, CURLOPT_TIMEOUT,        10_INT64)
-        rc = set_option(self % curl, CURLOPT_CONNECTTIMEOUT, 10_INT64)
-    end subroutine
-
     subroutine prepare_method(self, method)
         class(request_t) :: self
         character(*), intent(in) :: method
         integer :: rc
         select case(method)
         case ("get","GET")
-            rc = set_option(self % curl, CURLOPT_HTTPGET, 1_INT64)
+            rc = set_option(self % curl, CURLOPT_HTTPGET, 1_c_long)
         case ("post","POST")
-            rc = set_option(self % curl, CURLOPT_POST,    1_INT64)
+            rc = set_option(self % curl, CURLOPT_POST,    1_c_long)
+        case ("head","HEAD")
+            rc = set_option(self % curl, CURLOPT_NOBODY,  1_c_long)
+        case ("put","PUT")
+            rc = set_option(self % curl, CURLOPT_UPLOAD,  1_c_long)
+        case ("delete","DELETE")
+            rc = set_option(self % curl, CURLOPT_CUSTOMREQUEST, "DELETE" // c_null_char)
         end select
     end subroutine
 
@@ -56,45 +51,44 @@ contains
         rc = set_option(self % curl, CURLOPT_URL, url // c_null_char)
     end subroutine
 
-    subroutine prepare_options(self, &
-            params,  &
-            timeout, &
-            allow_redirects &
-    )
+    subroutine prepare_options(self, options)
         class(request_t) :: self
-        character(*), intent(in), optional :: params
-        real,         intent(in), optional :: timeout
-        logical,      intent(in), optional :: allow_redirects
+        type(options_t), intent(in), optional :: options
         integer :: rc
-        if (present(timeout)) &
-            rc = set_option(self % curl, CURLOPT_TIMEOUT_MS, int(timeout*1000,INT64))
-        if (present(allow_redirects)) &
-            rc = set_option(self % curl, CURLOPT_FOLLOWLOCATION, merge(1_INT64,0_INT64,allow_redirects))
+        if (present(options)) then
+            rc = set_option(self % curl, CURLOPT_TIMEOUT_MS,     options % timeout)
+            rc = set_option(self % curl, CURLOPT_FOLLOWLOCATION, options % allow_redirects)
+            rc = set_option(self % curl, CURLOPT_SSL_VERIFYPEER, options % verify)
+            if (len_trim(options % ca_cert) > 0) &
+                rc = set_option(self % curl, CURLOPT_CAINFO, options % ca_cert // c_null_char)
+            if (len_trim(options % ca_path) > 0) &
+                rc = set_option(self % curl, CURLOPT_CAPATH, options % ca_path // c_null_char)
+        end if
     end subroutine
 
-    function request(self, method, url, &
-            params,  &
-            timeout, &
-            allow_redirects &
-        ) result(response)
+
+    function request(self, method, url, params, options) result(response)
         class(request_t) :: self
-        character(*), intent(in) :: method
-        character(*), intent(in) :: url
-        character(*), intent(in), optional :: params
-        real,         intent(in), optional :: timeout
-        logical,      intent(in), optional :: allow_redirects
+        character(*),    intent(in) :: method
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
         type(response_t), target :: response
         integer :: rc
 
-        call self % init
+        self % curl = curl_init()
+        if (.not. c_associated(self % curl)) return
+
         call self % prepare_url(url)
         call self % prepare_method(method)
-        call self % prepare_options(params, timeout, allow_redirects)
+        call self % prepare_options(options)
+
         rc = set_option(self % curl, CURLOPT_HEADERFUNCTION, c_funloc(header_callback))
         rc = set_option(self % curl, CURLOPT_HEADERDATA,        c_loc(response))
-        rc = set_option(self % curl, CURLOPT_WRITEFUNCTION,  c_funloc(body_callback))
+        rc = set_option(self % curl, CURLOPT_WRITEFUNCTION,  c_funloc(writer_callback))
         rc = set_option(self % curl, CURLOPT_WRITEDATA,         c_loc(response))
         rc = curl_exec(self % curl)
+        response % ok = (rc == CURLE_OK)
     end function
 
     function get(self) result(response)
@@ -135,7 +129,7 @@ contains
     end function
 
     integer(c_size_t) &
-    function body_callback(chunk, size_, chunk_size, client_data) bind(c)
+    function writer_callback(chunk, size_, chunk_size, client_data) bind(c)
         type(c_ptr),       intent(in), value :: chunk      ! Chunk of the response.
         integer(c_size_t), intent(in), value :: size_      ! Always 1.
         integer(c_size_t), intent(in), value :: chunk_size ! Size of the chunk.
@@ -143,7 +137,7 @@ contains
         character(:), allocatable :: buffer
         type(response_t), pointer :: response
 
-        body_callback = 0_c_size_t
+        writer_callback = 0_c_size_t
 
         ! Are the passed C pointers associated?
         if (.not. c_associated(chunk)) return
@@ -160,7 +154,7 @@ contains
         deallocate(buffer)
 
         ! Return number of bytes read.
-        body_callback = chunk_size
+        writer_callback = chunk_size
     end function
 
     subroutine free(self)

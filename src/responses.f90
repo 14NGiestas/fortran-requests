@@ -7,6 +7,7 @@ implicit none
 private
 
 type, public :: response_t
+    logical :: ok
     character(:), allocatable :: url
     character(:), allocatable :: body
     character(:), allocatable :: headers
@@ -17,6 +18,7 @@ contains
 end type
 
 contains
+
     function header(self, name)
         class(response_t) :: self
         character(*), intent(in)  :: name
