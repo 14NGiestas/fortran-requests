@@ -15,9 +15,11 @@ private
 type, public :: request_t
     type(c_ptr) :: curl
 contains
-    !procedure :: get
-    !procedure :: post
-    !procedure :: delete
+    procedure :: get
+    procedure :: put
+    procedure :: head
+    procedure :: post
+    procedure :: delete
     procedure :: request
     procedure, private :: prepare_url
     procedure, private :: prepare_method
@@ -74,7 +76,7 @@ contains
         character(*),    intent(in), optional :: params
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        integer :: rc
+        integer(c_long) :: rc, status_code
 
         self % curl = curl_init()
         if (.not. c_associated(self % curl)) return
@@ -89,12 +91,52 @@ contains
         rc = set_option(self % curl, CURLOPT_WRITEDATA,         c_loc(response))
         rc = curl_exec(self % curl)
         response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
     end function
 
-    function get(self) result(response)
+    function get(self, url, params, options) result(response)
         class(request_t) :: self
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        !response = request("GET", url, data)
+        response = self % request("GET", url, params, options)
+    end function
+
+    function put(self, url, params, options) result(response)
+        class(request_t) :: self
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
+        type(response_t), target :: response
+        response = self % request("PUT", url, params, options)
+    end function
+
+    function head(self, url, params, options) result(response)
+        class(request_t) :: self
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
+        type(response_t), target :: response
+        response = self % request("HEAD", url, params, options)
+    end function
+
+    function post(self, url, params, options) result(response)
+        class(request_t) :: self
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
+        type(response_t), target :: response
+        response = self % request("POST", url, params, options)
+    end function
+
+    function delete(self, url, params, options) result(response)
+        class(request_t) :: self
+        character(*),    intent(in) :: url
+        character(*),    intent(in), optional :: params
+        type(options_t), intent(in), optional :: options
+        type(response_t), target :: response
+        response = self % request("DELETE", url, params, options)
     end function
 
     ! static size_t header_callback(char *buffer, size_t size,

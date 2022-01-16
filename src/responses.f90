@@ -8,6 +8,8 @@ private
 
 type, public :: response_t
     logical :: ok
+    integer :: status_code
+    integer :: status_curl
     character(:), allocatable :: url
     character(:), allocatable :: body
     character(:), allocatable :: headers

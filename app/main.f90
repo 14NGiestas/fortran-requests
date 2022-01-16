@@ -7,24 +7,22 @@ program main
   type(response_t) :: res
   type(request_t) :: req
   type(json_file) :: json
-  res = req % request("get", "https://httpbin.org/get", options=c_(timeout=1.0))
-  print*, '---- Headers ----'
-  print*, res % headers
+  res = req % get("https://httpbin.org/get", options=c_(timeout=1.0))
   print*, '----  Body   ----'
   json = res % json() ! Parse response body into json object
   call json % print()
   print*, '-----------------'
-  print*, res % header('date')
-  print*, res % header('content-type')
-  print*, res % header('Content-Type') ! case insensitive
 
-  res = req % request("head", "https://httpbin.org/get")
-  print*, res % headers
+  res = req % head("https://httpbin.org/get")
+  print '(A)', res % headers
+  print '(A)', res % header('date')
+  print '(A)', res % header('content-type')
+  print '(A)', res % header('Content-Type') ! case insensitive
 
-  res = req % request("get", "https://httpbin.org/get", options=c_(verify=.true.,  ca_cert="/in/valid/cert"))
-  if (.not. res % ok) print '("Invalid SSL cert")'
+  res = req % head("https://httpbin.org/get", options=c_(verify=.true.,  ca_cert="/in/valid/cert"))
+  if (.not. res % ok) print '("Invalid SSL cert: ",i0)', res % status_curl
 
-  res = req % request("get", "https://httpbin.org/get", options=c_(verify=.false., ca_path="/in/valid/path"))
+  res = req % head("https://httpbin.org/get", options=c_(verify=.false., ca_path="/in/valid/path"))
   if (res % ok) print '("Invalid SSL cert, but we are not verifying")'
 
 end program main
