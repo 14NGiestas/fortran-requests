@@ -1,25 +1,28 @@
-module requests
+module requests_
 use, intrinsic :: iso_c_binding
 use, intrinsic :: iso_fortran_env
 use curl
 use json_module
 use curl, only: set_option => curl_easy_setopt,  &
+                get_option => curl_easy_getinfo, &
                 curl_init  => curl_easy_init,    &
                 curl_free  => curl_easy_cleanup, &
                 curl_exec  => curl_easy_perform
 use responses
+use queries
 use config
 implicit none
 private
 
 type, public :: request_t
-    type(c_ptr) :: curl
+    type(c_ptr), private :: curl
 contains
     procedure :: get
     procedure :: put
     procedure :: head
     procedure :: post
     procedure :: delete
+    procedure :: options
     procedure :: request
     procedure, private :: prepare_url
     procedure, private :: prepare_method
@@ -28,29 +31,40 @@ end type
 
 contains
 
-    subroutine prepare_method(self, method)
+    subroutine prepare_method(self, method, query)
         class(request_t) :: self
         character(*), intent(in) :: method
+        type(query_t), intent(in), optional :: query
         integer :: rc
         select case(method)
         case ("get","GET")
             rc = set_option(self % curl, CURLOPT_HTTPGET, 1_c_long)
         case ("post","POST")
             rc = set_option(self % curl, CURLOPT_POST,    1_c_long)
+            rc = set_option(self % curl, CURLOPT_COPYPOSTFIELDS, query % string() // c_null_char)
         case ("head","HEAD")
             rc = set_option(self % curl, CURLOPT_NOBODY,  1_c_long)
         case ("put","PUT")
             rc = set_option(self % curl, CURLOPT_UPLOAD,  1_c_long)
         case ("delete","DELETE")
             rc = set_option(self % curl, CURLOPT_CUSTOMREQUEST, "DELETE" // c_null_char)
+        case ("options", "OPTIONS")
+            rc = set_option(self % curl, CURLOPT_CUSTOMREQUEST, "OPTIONS" // c_null_char)
         end select
     end subroutine
 
-    subroutine prepare_url(self, url)
+    subroutine prepare_url(self, url, query)
         class(request_t) :: self
         character(*), intent(in) :: url
+        type(query_t), intent(in), optional :: query
         integer :: rc
-        rc = set_option(self % curl, CURLOPT_URL, url // c_null_char)
+        if (present(query)) then
+            rc = set_option(self % curl, CURLOPT_URL, &
+                url // '?' // query % string() // c_null_char )
+        else
+            rc = set_option(self % curl, CURLOPT_URL, &
+                url // c_null_char )
+        end if
     end subroutine
 
     subroutine prepare_options(self, options)
@@ -69,20 +83,22 @@ contains
     end subroutine
 
 
-    function request(self, method, url, params, options) result(response)
+    function request(self, method, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: method
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
+        integer(c_long), target :: http_status
         integer(c_long) :: rc, status_code
 
         self % curl = curl_init()
         if (.not. c_associated(self % curl)) return
 
-        call self % prepare_url(url)
-        call self % prepare_method(method)
+        call self % prepare_url(url, params)
+        call self % prepare_method(method, data)
         call self % prepare_options(options)
 
         rc = set_option(self % curl, CURLOPT_HEADERFUNCTION, c_funloc(header_callback))
@@ -92,51 +108,68 @@ contains
         rc = curl_exec(self % curl)
         response % ok = (rc == CURLE_OK)
         response % status_curl = rc
+        rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, c_loc(http_status))
+        response % status_code = http_status
     end function
 
-    function get(self, url, params, options) result(response)
+    function get(self, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        response = self % request("GET", url, params, options)
+        response = self % request("GET", url, params, data, options)
     end function
 
-    function put(self, url, params, options) result(response)
+    function put(self, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        response = self % request("PUT", url, params, options)
+        response = self % request("PUT", url, params, data, options)
     end function
 
-    function head(self, url, params, options) result(response)
+    function head(self, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        response = self % request("HEAD", url, params, options)
+        response = self % request("HEAD", url, params, data, options)
     end function
 
-    function post(self, url, params, options) result(response)
+    function post(self, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        response = self % request("POST", url, params, options)
+        response = self % request("POST", url, params, data, options)
     end function
 
-    function delete(self, url, params, options) result(response)
+    function delete(self, url, params, data, options) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: url
-        character(*),    intent(in), optional :: params
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
         type(options_t), intent(in), optional :: options
         type(response_t), target :: response
-        response = self % request("DELETE", url, params, options)
+        response = self % request("DELETE", url, params, data, options)
+    end function
+
+    function options(self, url, params, data, options_) result(response)
+        class(request_t) :: self
+        character(*),    intent(in) :: url
+        type(query_t),   intent(in), optional :: params
+        type(query_t),   intent(in), optional :: data
+        type(options_t), intent(in), optional :: options_
+        type(response_t), target :: response
+        response = self % request("OPTIONS", url, params, data, options_)
     end function
 
     ! static size_t header_callback(char *buffer, size_t size,
