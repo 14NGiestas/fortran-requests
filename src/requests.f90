@@ -27,6 +27,7 @@ contains
     procedure, private :: prepare_url
     procedure, private :: prepare_method
     procedure, private :: prepare_options
+    final :: finalize
 end type
 
 contains
@@ -41,7 +42,9 @@ contains
             rc = set_option(self % curl, CURLOPT_HTTPGET, 1_c_long)
         case ("post","POST")
             rc = set_option(self % curl, CURLOPT_POST,    1_c_long)
-            rc = set_option(self % curl, CURLOPT_COPYPOSTFIELDS, query % string() // c_null_char)
+            if (present(query)) then
+                rc = set_option(self % curl, CURLOPT_COPYPOSTFIELDS, query % string() // c_null_char)
+            end if
         case ("head","HEAD")
             rc = set_option(self % curl, CURLOPT_NOBODY,  1_c_long)
         case ("put","PUT")
@@ -83,16 +86,30 @@ contains
     end subroutine
 
 
-    function request(self, method, url, params, data, options) result(response)
+    function request(self, method, url, &
+        params, &
+        data,   &
+        options &
+    ) result(response)
         class(request_t) :: self
         character(*),    intent(in) :: method
+            !! HTTP verb to use
         character(*),    intent(in) :: url
+            !! Request url
         type(query_t),   intent(in), optional :: params
+            !! Query parameters to be encoded in the request url
         type(query_t),   intent(in), optional :: data
+            !! Query parameters to be encoded in the request body
         type(options_t), intent(in), optional :: options
+            !! Extra options to control libcurl
         type(response_t), target :: response
-        integer(c_long), target :: http_status
-        integer(c_long) :: rc, status_code
+            !! Object to be passed into libcurl
+        integer(c_int), target :: status_code
+            !! HTTP status code response
+        type(c_ptr), target :: effective_url
+            !! The last used URL
+        integer(c_long) :: rc
+            !! Return code
 
         self % curl = curl_init()
         if (.not. c_associated(self % curl)) return
@@ -105,11 +122,14 @@ contains
         rc = set_option(self % curl, CURLOPT_HEADERDATA,        c_loc(response))
         rc = set_option(self % curl, CURLOPT_WRITEFUNCTION,  c_funloc(writer_callback))
         rc = set_option(self % curl, CURLOPT_WRITEDATA,         c_loc(response))
+
         rc = curl_exec(self % curl)
         response % ok = (rc == CURLE_OK)
         response % status_curl = rc
-        rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, c_loc(http_status))
-        response % status_code = http_status
+        rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, c_loc(status_code))
+        rc = get_option(self % curl, CURLINFO_EFFECTIVE_URL, c_loc(effective_url))
+        call c_f_str_ptr(effective_url, response % url)
+        response % status_code = status_code
     end function
 
     function get(self, url, params, data, options) result(response)
@@ -191,12 +211,12 @@ contains
 
         ! Convert C pointer to Fortran pointer.
         call c_f_pointer(client_data, response)
-        if (.not. allocated(response % headers)) response % headers = ''
+        if (.not. allocated(response % raw_headers)) response % raw_headers = ''
 
         ! Convert C pointer to Fortran allocatable character.
         call c_f_str_ptr(chunk, buffer, chunk_size)
         if (.not. allocated(buffer)) return
-        response % headers = response % headers // buffer
+        response % raw_headers = response % raw_headers // buffer
         deallocate(buffer)
 
         ! Return number of bytes read.
@@ -232,8 +252,8 @@ contains
         writer_callback = chunk_size
     end function
 
-    subroutine free(self)
-        class(request_t) :: self
+    subroutine finalize(self)
+        type(request_t) :: self
         if (c_associated(self % curl)) &
             call curl_free(self % curl)
     end subroutine
