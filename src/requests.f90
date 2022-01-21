@@ -104,9 +104,9 @@ contains
             !! Extra options to control libcurl
         type(response_t), target :: response
             !! Object to be passed into libcurl
-        integer(c_int), target :: status_code
+        integer :: status_code
             !! HTTP status code response
-        type(c_ptr), target :: effective_url
+        character(:), allocatable :: effective_url
             !! The last used URL
         integer(c_long) :: rc
             !! Return code
@@ -126,9 +126,8 @@ contains
         rc = curl_exec(self % curl)
         response % ok = (rc == CURLE_OK)
         response % status_curl = rc
-        rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, c_loc(status_code))
-        rc = get_option(self % curl, CURLINFO_EFFECTIVE_URL, c_loc(effective_url))
-        call c_f_str_ptr(effective_url, response % url)
+        rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, status_code)
+        rc = get_option(self % curl, CURLINFO_EFFECTIVE_URL, effective_url)
         response % status_code = status_code
     end function
 
