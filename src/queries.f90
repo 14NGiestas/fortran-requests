@@ -42,12 +42,10 @@ contains
         integer :: i
         query_string = ''
         do i=1,size(self % params)
-            query_string = trim(adjustl(query_string)) &
-                // self % params(i) % key &
-                // '=' &
-                // self % params(i) % value
-            if (i <= size(self % params)-1) &
+            query_string = trim(adjustl(query_string)) // self % params(i) % key // '=' // self % params(i) % value
+            if (i < size(self % params)) then
                 query_string = query_string // "&"
+            end if
         end do
     end function
 
