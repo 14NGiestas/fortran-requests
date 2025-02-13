@@ -1,4 +1,5 @@
 program main
+    use sessions
     use requests
     use requests, only: q => make_query, set => make_options
     use json_module
@@ -7,10 +8,22 @@ program main
     type(request_t) :: req
 
     block
+        type(session_t) :: session
         type(json_file) :: json
-        res = req % get("https://httpbin.org/get", &
+
+        call session % create()
+
+        res = session % get("https://httpbin.org/cookies/set", &
                         params=q(["fruit" .kv. "apple", &
                                   "price" .kv. "20000"]), &
+                                    options=set(timeout=1.0))
+        print '(a)', '---- Headers ----'
+        print '(a)', res % raw_headers ! Headers, but in a string
+        print '(a)', '----  Body   ----'
+        json = res % json() ! Parse response body into json object
+        call json % print()
+        print '(a)', '-----------------'
+        res = session % get("https://httpbin.org/cookies", &
                                     options=set(timeout=1.0))
         print '(a)', '---- Headers ----'
         print '(a)', res % raw_headers ! Headers, but in a string
@@ -60,7 +73,7 @@ program main
 
     block
         res = req % head('https://httpbin.org/status/404')
-        print '("Returned ",i0)', res % status_code
+        print '("Returned ",i0, " and we are going to error stop the program.")', res % status_code
         call res % raise_for_status() ! This should call error stop, it's alright!
     end block
 

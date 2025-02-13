@@ -15,7 +15,7 @@ implicit none
 private
 
 type, public :: request_t
-    type(c_ptr), private :: curl
+    type(c_ptr), private :: curl = C_NULL_PTR
 contains
     procedure :: get
     procedure :: put
@@ -27,6 +27,7 @@ contains
     procedure, private :: prepare_url
     procedure, private :: prepare_method
     procedure, private :: prepare_options
+    procedure :: free
     final :: finalize
 end type
 
@@ -112,22 +113,68 @@ contains
             !! Return code
 
         self % curl = curl_init()
-        if (.not. c_associated(self % curl)) return
+        if (.not. c_associated(self % curl)) then
+            response % ok = .false.
+            response % status_curl = -1  ! Indicate curl_init failure
+            return
+        end if
 
         call self % prepare_url(url, params)
         call self % prepare_method(method, data)
         call self % prepare_options(options)
 
+        if (present(options)) then
+          if (len_trim(options % headers) > 0) then
+            rc = set_option(self % curl, CURLOPT_HTTPHEADER, options % headers // c_null_char)
+            response % ok = (rc == CURLE_OK)
+            response % status_curl = rc
+            response % error_message = "Failed to set HTTP header"
+            if (.not. response % ok) return
+          end if
+        end if
+
         rc = set_option(self % curl, CURLOPT_HEADERFUNCTION, c_funloc(header_callback))
-        rc = set_option(self % curl, CURLOPT_HEADERDATA,        c_loc(response))
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to set header callback"
+        if (.not. response % ok) return
+
+        rc = set_option(self % curl, CURLOPT_HEADERDATA, c_loc(response))
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to set header data"
+        if (.not. response % ok) return
+
         rc = set_option(self % curl, CURLOPT_WRITEFUNCTION,  c_funloc(writer_callback))
-        rc = set_option(self % curl, CURLOPT_WRITEDATA,         c_loc(response))
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to set writer callback"
+        if (.not. response % ok) return
+
+        rc = set_option(self % curl, CURLOPT_WRITEDATA, c_loc(response))
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to set writer data"
+        if (.not. response % ok) return
 
         rc = curl_exec(self % curl)
         response % ok = (rc == CURLE_OK)
         response % status_curl = rc
+        response % error_message = "Failed to execute request"
+        if (.not. response % ok) return
+
         rc = get_option(self % curl, CURLINFO_RESPONSE_CODE, status_code)
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to get response code"
+        if (.not. response % ok) return
+
         rc = get_option(self % curl, CURLINFO_EFFECTIVE_URL, effective_url)
+        response % ok = (rc == CURLE_OK)
+        response % status_curl = rc
+        response % error_message = "Failed to get effective URL"
+        if (.not. response % ok) return
+
         response % status_code = status_code
     end function
 
@@ -251,9 +298,15 @@ contains
         writer_callback = chunk_size
     end function
 
-    subroutine finalize(self)
-        type(request_t) :: self
+    subroutine free(self)
+        class(request_t) :: self
         if (c_associated(self % curl)) &
             call curl_free(self % curl)
     end subroutine
+
+    subroutine finalize(self)
+        type(request_t) :: self
+        call self % free()
+    end subroutine
+
 end module

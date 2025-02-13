@@ -3,4 +3,5 @@ module requests
     use responses
     use queries
     use config
+    use sessions
 end module
