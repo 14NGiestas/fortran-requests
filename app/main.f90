@@ -61,7 +61,7 @@ program main
     block
         res = req % head('https://httpbin.org/status/404')
         print '("Returned ",i0)', res % status_code
-        call res % raise_for_status()
+        call res % raise_for_status() ! This should call error stop, it's alright!
     end block
 
 end program main
